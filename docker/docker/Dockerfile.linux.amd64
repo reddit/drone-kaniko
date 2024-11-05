@@ -1,5 +1,5 @@
-FROM gcr.io/kaniko-project/executor:v1.23.2
+    FROM artifactory.build.ue1.snooguts.net/gcr-remote/kaniko-project/executor:v1.23.2
 
-ENV KANIKO_VERSION=1.23.2
-ADD release/linux/amd64/kaniko-docker /kaniko/
-ENTRYPOINT ["/kaniko/kaniko-docker"]
+    ENV KANIKO_VERSION=1.23.2
+    ADD release/linux/amd64/kaniko-docker /kaniko-copy/
+    ENTRYPOINT ["/kaniko-copy/kaniko-docker"]

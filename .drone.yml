@@ -1,488 +1,64 @@
+#PR trigger
 kind: pipeline
-type: vm
-name: default
+type: docker
+name: build
 
-pool:
-  use: ubuntu
-
-platform:
-  os: linux
-  arch: amd64
+trigger:
+  event:
+  - pull_request
 
 steps:
-- name: build
-  image: golang:1.22.4
+- name: build and test
+  image: artifactory.build.ue1.snooguts.net/docker-hub-remote/golang:1.22.4
+  depends_on:
+    - clone
   commands:
   - go test ./...
   - sh scripts/build.sh
 
-- name: docker
-  image: plugins/docker
+- name: build dev docker image
+  image: artifactory.build.ue1.snooguts.net/dockerhub-remote/plugins/kaniko
+  pull: always
+  depends_on:
+    - clone
   settings:
-    repo: plugins/kaniko
-    auto_tag: true
-    auto_tag_suffix: linux-amd64
-    daemon_off: false
     dockerfile: docker/docker/Dockerfile.linux.amd64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: gcr
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-gcr
-    auto_tag: true
-    auto_tag_suffix: linux-amd64
-    daemon_off: false
-    dockerfile: docker/gcr/Dockerfile.linux.amd64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: gar
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-gar
-    auto_tag: true
-    auto_tag_suffix: linux-amd64
-    daemon_off: false
-    dockerfile: docker/gar/Dockerfile.linux.amd64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-        - pull_request
-
-- name: ecr
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-ecr
-    auto_tag: true
-    auto_tag_suffix: linux-amd64
-    daemon_off: false
-    dockerfile: docker/ecr/Dockerfile.linux.amd64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: acr
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-acr
-    auto_tag: true
-    auto_tag_suffix: linux-amd64
-    daemon_off: false
-    dockerfile: docker/acr/Dockerfile.linux.amd64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: docker-kaniko-v1-9
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko
-    auto_tag: true
-    auto_tag_suffix: linux-amd64-kaniko1.9.1
-    daemon_off: false
-    dockerfile: docker/docker/Dockerfile.linux.amd64.kaniko1.9.1
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: gcr-kaniko-v1-9
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-gcr
-    auto_tag: true
-    auto_tag_suffix: linux-amd64-kaniko1.9.1
-    daemon_off: false
-    dockerfile: docker/gcr/Dockerfile.linux.amd64.kaniko1.9.1
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: gar-kaniko-v1-9
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-gar
-    auto_tag: true
-    auto_tag_suffix: linux-amd64-kaniko1.9.1
-    daemon_off: false
-    dockerfile: docker/gar/Dockerfile.linux.amd64.kaniko1.9.1
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-        - pull_request
-
-- name: ecr-kaniko-v1-9
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-ecr
-    auto_tag: true
-    auto_tag_suffix: linux-amd64-kaniko1.9.1
-    daemon_off: false
-    dockerfile: docker/ecr/Dockerfile.linux.amd64.kaniko1.9.1
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
+    no_push: "true"
 ---
 kind: pipeline
-type: vm
-name: arm
-
-pool:
-  use: ubuntu_arm64
-
-steps:
-- name: build
-  image: golang:1.22.4
-  commands:
-  - go test ./...
-  - sh scripts/build.sh
-
-- name: docker
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko
-    auto_tag: true
-    auto_tag_suffix: linux-arm64
-    daemon_off: false
-    dockerfile: docker/docker/Dockerfile.linux.arm64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: gcr
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-gcr
-    auto_tag: true
-    auto_tag_suffix: linux-arm64
-    daemon_off: false
-    dockerfile: docker/gcr/Dockerfile.linux.arm64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: gar
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-gar
-    auto_tag: true
-    auto_tag_suffix: linux-arm64
-    daemon_off: false
-    dockerfile: docker/gar/Dockerfile.linux.arm64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-        - pull_request
-
-- name: ecr
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-ecr
-    auto_tag: true
-    auto_tag_suffix: linux-arm64
-    daemon_off: false
-    dockerfile: docker/ecr/Dockerfile.linux.arm64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: acr
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-acr
-    auto_tag: true
-    auto_tag_suffix: linux-arm64
-    daemon_off: false
-    dockerfile: docker/acr/Dockerfile.linux.arm64
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: docker-kaniko-v1-9
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko
-    auto_tag: true
-    auto_tag_suffix: linux-arm64-kaniko1.9.1
-    daemon_off: false
-    dockerfile: docker/docker/Dockerfile.linux.arm64.kaniko1.9.1
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: gcr-kaniko-v1-9
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-gcr
-    auto_tag: true
-    auto_tag_suffix: linux-arm64-kaniko1.9.1
-    daemon_off: false
-    dockerfile: docker/gcr/Dockerfile.linux.arm64.kaniko1.9.1
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
-
-- name: gar-kaniko-v1-9
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-gar
-    auto_tag: true
-    auto_tag_suffix: linux-arm64-kaniko1.9.1
-    daemon_off: false
-    dockerfile: docker/gar/Dockerfile.linux.arm64.kaniko1.9.1
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-        - pull_request
-
-- name: ecr-kaniko-v1-9
-  image: plugins/docker
-  settings:
-    repo: plugins/kaniko-ecr
-    auto_tag: true
-    auto_tag_suffix: linux-arm64-kaniko1.9.1
-    daemon_off: false
-    dockerfile: docker/ecr/Dockerfile.linux.arm64.kaniko1.9.1
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-  when:
-    event:
-      exclude:
-      - pull_request
----
-kind: pipeline
-type: vm
-name: notifications-docker
-
-pool:
-  use: ubuntu
-
-platform:
-  os: linux
-  arch: amd64
-
-steps:
-- name: manifest-docker
-  pull: always
-  image: plugins/manifest
-  settings:
-    auto_tag: true
-    ignore_missing: true
-    password:
-      from_secret: docker_password
-    spec: docker/docker/manifest.tmpl
-    username:
-      from_secret: docker_username
-
-- name: manifest-gcr
-  pull: always
-  image: plugins/manifest
-  settings:
-    auto_tag: true
-    ignore_missing: true
-    password:
-      from_secret: docker_password
-    spec: docker/gcr/manifest.tmpl
-    username:
-      from_secret: docker_username
-
-- name: manifest-gar
-  pull: always
-  image: plugins/manifest
-  settings:
-    auto_tag: true
-    ignore_missing: true
-    password:
-      from_secret: docker_password
-    spec: docker/gar/manifest.tmpl
-    username:
-      from_secret: docker_username
-
-- name: manifest-acr
-  pull: always
-  image: plugins/manifest
-  settings:
-    auto_tag: true
-    ignore_missing: true
-    password:
-      from_secret: docker_password
-    spec: docker/acr/manifest.tmpl
-    username:
-      from_secret: docker_username
-
-- name: manifest-ecr
-  pull: always
-  image: plugins/manifest
-  settings:
-    auto_tag: true
-    ignore_missing: true
-    password:
-      from_secret: docker_password
-    spec: docker/ecr/manifest.tmpl
-    username:
-      from_secret: docker_username
-
+type: docker
+name: publish prod image
 trigger:
-  ref:
-  - refs/heads/main
-  - "refs/tags/**"
-
-depends_on:
-- default
-- arm
-
----
-kind: pipeline
-type: vm
-name: notifications-docker-kaniko1-8
-
-pool:
-  use: ubuntu
-
-platform:
-  os: linux
-  arch: amd64
-
+  branch:
+   - main
+  event:
+   - push
 steps:
-- name: manifest-docker
-  pull: always
-  image: plugins/manifest
-  settings:
-    auto_tag: false
-    ignore_missing: true
-    password:
-      from_secret: docker_password
-    spec: docker/docker/manifest-kaniko1.9.1.tmpl
-    username:
-      from_secret: docker_username
-
-- name: manifest-gcr
-  pull: always
-  image: plugins/manifest
-  settings:
-    auto_tag: false
-    ignore_missing: true
-    password:
-      from_secret: docker_password
-    spec: docker/gcr/manifest-kaniko1.9.1.tmpl
-    username:
-      from_secret: docker_username
-
-- name: manifest-gar
-  pull: always
-  image: plugins/manifest
-  settings:
-    auto_tag: false
-    ignore_missing: true
-    password:
-      from_secret: docker_password
-    spec: docker/gar/manifest-kaniko1.9.1.tmpl
-    username:
-      from_secret: docker_username
-
-- name: manifest-ecr
-  pull: always
-  image: plugins/manifest
-  settings:
-    auto_tag: false
-    ignore_missing: true
-    password:
-      from_secret: docker_password
-    spec: docker/ecr/manifest-kaniko1.9.1.tmpl
-    username:
-      from_secret: docker_username
-
-trigger:
-  ref:
-  - refs/heads/main
-  - "refs/tags/**"
-
-depends_on:
-- default
-- arm
+  - name: build and test
+    image: artifactory.build.ue1.snooguts.net/dockerhub-remote/golang:1.22.4
+    depends_on:
+      - clone
+    commands:
+    - go test ./...
+    - sh scripts/build.sh
+  - name: Publish prod docker image
+    image: artifactory.build.ue1.snooguts.net/dockerhub-remote/plugins/kaniko
+    pull: always
+    environment:
+      PLUGIN_PASSWORD:
+        from_secret: artifactory_password_2db113
+    depends_on:
+      - build and test
+    settings:
+      dockerfile: docker/docker/Dockerfile.linux.amd64
+      registry: artifactory.build.ue1.snooguts.net
+      repo: artifactory.build.ue1.snooguts.net/reddit-docker-prod/plugin-kaniko
+      tags:
+        - ${DRONE_COMMIT}
+      username: drone
+---
+kind: secret
+name: artifactory_password_2db113
+get:
+  path: secret/artifactory/drone/password
+  name: value
