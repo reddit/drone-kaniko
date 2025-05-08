@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
 	awsv1 "github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 	ecrv1 "github.com/aws/aws-sdk-go/service/ecr"
@@ -29,6 +30,8 @@ import (
 	kaniko "github.com/drone/drone-kaniko"
 	"github.com/drone/drone-kaniko/pkg/artifact"
 	"github.com/drone/drone-kaniko/pkg/docker"
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/crane"
 )
 
 const (
@@ -124,6 +127,17 @@ func main() {
 			Name:   "args",
 			Usage:  "build args",
 			EnvVar: "PLUGIN_BUILD_ARGS",
+		},
+		cli.GenericFlag{
+			Name:   "args-new",
+			Usage:  "build args new",
+			EnvVar: "PLUGIN_BUILD_ARGS_NEW",
+			Value:  new(CustomStringSliceFlag),
+		},
+		cli.BoolFlag{
+			Name:   "plugin-multiple-build-agrs",
+			Usage:  "plugin multiple build agrs",
+			EnvVar: "PLUGIN_MULTIPLE_BUILD_ARGS",
 		},
 		cli.StringFlag{
 			Name:   "target",
@@ -392,6 +406,21 @@ func main() {
 			Usage:  "OIDC token for assuming role via web identity",
 			EnvVar: "PLUGIN_OIDC_TOKEN_ID",
 		},
+		cli.StringFlag{
+			Name:   "tar-path",
+			Usage:  "Set this flag to save the image as a tarball at path",
+			EnvVar: "PLUGIN_TAR_PATH, PLUGIN_DESTINATION_TAR_PATH",
+		},
+		cli.StringFlag{
+			Name:   "source-tar-path",
+			Usage:  "Set this flag for the source tarball during push operations.",
+			EnvVar: "PLUGIN_SOURCE_TAR_PATH",
+		},
+		cli.BoolFlag{
+			Name:   "push-only",
+			Usage:  "Specify if the operation is push-only",
+			EnvVar: "PLUGIN_PUSH_ONLY",
+		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -404,9 +433,20 @@ func run(c *cli.Context) error {
 	registry := c.String("registry")
 	region := c.String("region")
 	noPush := c.Bool("no-push")
+	pushOnly := c.Bool("push-only")
 	assumeRole := c.String("assume-role")
 	externalId := c.String("external-id")
 	oidcToken := c.String("oidc-token-id")
+
+	// Validate flags
+	if noPush && pushOnly {
+		return fmt.Errorf("no-push and push-only flags cannot be used together")
+	}
+
+	// Handle push-only operation
+	if pushOnly {
+		return handlePushOnly(c)
+	}
 
 	// setup docker config for azure registry and base image docker registry
 	err := setDockerAuth(
@@ -464,6 +504,8 @@ func run(c *cli.Context) error {
 			AutoTagSuffix:               c.String("auto-tag-suffix"),
 			ExpandTag:                   c.Bool("expand-tag"),
 			Args:                        c.StringSlice("args"),
+			ArgsNew:                     c.Generic("args-new").(*CustomStringSliceFlag).GetValue(),
+			IsMultipleBuildArgs:         c.Bool("plugin-multiple-build-agrs"),
 			Target:                      c.String("target"),
 			Repo:                        fmt.Sprintf("%s/%s", c.String("registry"), c.String("repo")),
 			Mirrors:                     c.StringSlice("registry-mirrors"),
@@ -505,8 +547,12 @@ func run(c *cli.Context) error {
 			SkipTLSVerifyRegistry:       c.Bool("skip-tls-verify-registry"),
 			UseNewRun:                   c.Bool("use-new-run"),
 			IgnorePath:                  c.String("ignore-path"),
+			IgnorePaths:                 c.StringSlice("ignore-paths"),
 			ImageFSExtractRetry:         c.Int("image-fs-extract-retry"),
 			ImageDownloadRetry:          c.Int("image-download-retry"),
+			TarPath:                     c.String("tar-path"),
+			SourceTarPath:               c.String("source-tar-path"),
+			PushOnly:                    c.Bool("push-only"),
 		},
 		Artifact: kaniko.Artifact{
 			Tags:         c.StringSlice("tags"),
@@ -831,4 +877,131 @@ func getOidcCreds(oidcToken, assumeRole string) (string, string, string, error) 
 
 	// Return the credentials
 	return *result.Credentials.AccessKeyId, *result.Credentials.SecretAccessKey, *result.Credentials.SessionToken, nil
+}
+
+func createECRSession(region, accessKey, secretKey, sessionToken string) *ecrv1.ECR {
+	sess := session.Must(session.NewSession(&awsv1.Config{
+		Region: awsv1.String(region),
+		Credentials: credentials.NewStaticCredentials(
+			accessKey,
+			secretKey,
+			sessionToken,
+		),
+	}))
+	return ecrv1.New(sess)
+}
+
+func getECRCredentials(region, registry, assumeRole, externalId, accessKey, secretKey, oidcToken string) (string, string, error) {
+	if assumeRole != "" && oidcToken != "" {
+		// For OIDC auth with assume role
+		awsAccessKey, awsSecretKey, awsSessionToken, err := getOidcCreds(oidcToken, assumeRole)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get OIDC credentials: %w", err)
+		}
+
+		// Create ECR session and get auth info
+		svc := createECRSession(region, awsAccessKey, awsSecretKey, awsSessionToken)
+		username, password, _, err := getAuthInfo(svc)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get ECR credentials: %w", err)
+		}
+		return username, password, nil
+	} else if assumeRole != "" {
+		// For assume role auth
+		username, password, _, err := getAssumeRoleCreds(region, assumeRole, externalId, "")
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get ECR credentials: %w", err)
+		}
+		return username, password, nil
+	} else if accessKey != "" && secretKey != "" {
+		// For direct credentials
+		sess := session.Must(session.NewSession(&awsv1.Config{
+			Region: awsv1.String(region),
+			Credentials: credentials.NewStaticCredentials(
+				accessKey,
+				secretKey,
+				"",
+			),
+		}))
+		svc := ecrv1.New(sess)
+
+		username, password, _, err := getAuthInfo(svc)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get ECR credentials: %w", err)
+		}
+		return username, password, nil
+	} else {
+		// For IAM role auth (default credentials)
+		sess := session.Must(session.NewSession(&awsv1.Config{
+			Region: awsv1.String(region),
+		}))
+		svc := ecrv1.New(sess)
+
+		username, password, _, err := getAuthInfo(svc)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get ECR credentials: %w", err)
+		}
+		return username, password, nil
+	}
+}
+
+func handlePushOnly(c *cli.Context) error {
+	sourceTarPath := c.String("source-tar-path")
+	if sourceTarPath == "" {
+		return fmt.Errorf("source_tar_path is required when push_only is set")
+	}
+
+	if _, err := os.Stat(sourceTarPath); os.IsNotExist(err) {
+		return fmt.Errorf("image tarball does not exist at path: %s", sourceTarPath)
+	}
+
+	repo := c.String("repo")
+	registry := c.String("registry")
+	if repo == "" || registry == "" {
+		return fmt.Errorf("repository and registry must be specified for push-only operation")
+	}
+
+	// Load the image from the tarball
+	img, err := crane.Load(sourceTarPath)
+	if err != nil {
+		return fmt.Errorf("failed to load image from tarball: %v", err)
+	}
+
+	// Get ECR credentials using the common function
+	username, password, err := getECRCredentials(
+		c.String("region"),
+		registry,
+		c.String("assume-role"),
+		c.String("external-id"),
+		c.String("access-key"),
+		c.String("secret-key"),
+		c.String("oidc-token-id"),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Setup crane auth
+	opts := []crane.Option{
+		crane.WithAuth(&authn.Basic{
+			Username: username,
+			Password: password,
+		}),
+	}
+
+	// Push for each tag
+	tags := c.StringSlice("tags")
+	if len(tags) == 0 {
+		tags = []string{"latest"}
+	}
+
+	for _, tag := range tags {
+		dest := fmt.Sprintf("%s/%s:%s", registry, repo, tag)
+		if err := crane.Push(img, dest, opts...); err != nil {
+			return fmt.Errorf("failed to push image to %s: %v", dest, err)
+		}
+		fmt.Printf("Successfully pushed image to %s\n", dest)
+	}
+
+	return nil
 }
